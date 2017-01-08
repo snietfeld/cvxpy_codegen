@@ -1,0 +1,130 @@
+{% import "util_macros.c.jinja" as u with context %}
+{% import "linops/linops.c.jinja" as lo with context %}
+#include "codegen.h"
+#include <stdio.h>
+
+
+static long *obj_colptr;
+static long *obj_rowidx;
+static long *eq_colptr;
+static long *eq_rowidx;
+static long *leq_colptr;
+static long *leq_rowidx;
+
+
+void add_matrix(long m, long hshift, long vshift,
+                long *Ap, long *Ai, double *Ax,
+                long *Bp, long *Bj, double *Bx);
+void reset_colptr(long m, long *Ap);
+void get_colvec(double *vec, long len, long *Ap, double *Ax);
+void get_rowvec(double *vec, long len, long *Ap, long *Aj, double *Ax);
+{% for linop_name in unique_linops %}
+  {{- lo.declare(linop_name) }}
+{% endfor %}
+
+
+void fill_matrices(Params *params, Work *work){
+
+  {% for coeff in linop_coeffs %}
+  {{ lo.eval(coeff) -}}
+  {% endfor %}
+
+  printf("TP5\n");
+
+  /* Equality Constraints. */
+  {% for c in eq_constr %}
+  {% for coeff in c.linop.coeffs.values() %}
+  {% if coeff.vid == CONST_ID %}
+  get_colvec(work->eq_offset, {{ c.vert_offset}}, {{ u.rowptr(coeff) }}, {{ u.nzval(coeff) }});
+  {% else %}
+  add_matrix({{ coeff.sparsity.shape[0] }}, {{ var_offsets[coeff.vid] }}, {{ c.vert_offset }},
+             eq_colptr, eq_rowidx, work->eq_nzval,
+             {{ u.rowptr(coeff) }},  {{ u.colidx(coeff) }},  {{ u.nzval(coeff) }});
+  {% endif %}
+  {% endfor %}
+  {% endfor %}
+  
+  /* Inequality constraints. */
+  {% for c in leq_constr %}
+  {% for coeff in c.linop.coeffs.values() %}
+  {% if coeff.vid == CONST_ID %}
+  get_colvec(work->leq_offset, {{ c.vert_offset}}, {{ u.rowptr(coeff) }}, {{ u.nzval(coeff) }});
+  {% else %}
+  add_matrix({{ coeff.sparsity.shape[0] }}, {{ var_offsets[coeff.vid] }}, {{ c.vert_offset }},
+             leq_colptr, leq_rowidx, work->leq_nzval,
+             {{ u.rowptr(coeff) }},  {{ u.colidx(coeff) }},  {{ u.nzval(coeff) }});
+  {% endif %}
+  {% endfor %}
+  {% endfor %}
+  
+  /* Objective. */
+  {% for coeff in objective.coeffs.values() %}
+  {% if coeff.vid == CONST_ID %}
+  get_colvec(work->leq_offset, 0, {{ u.rowptr(coeff) }}, {{ u.nzval(coeff) }});
+  {% else %}
+  add_matrix({{ coeff.sparsity.shape[0] }}, {{ var_offsets[coeff.vid] }}, 0,
+             obj_colptr, obj_rowidx, work->obj_nzval,
+             {{ u.rowptr(coeff) }},  {{ u.colidx(coeff) }},  {{ u.nzval(coeff) }});
+  {% endif %}
+  {% endfor %}
+  get_colvec(work->obj_vec, {{ x_length }},  obj_colptr, work->obj_nzval);
+
+
+
+  
+  reset_colptr({{  eq_coeff.nnz }},  eq_colptr);
+  reset_colptr({{ leq_coeff.nnz }}, leq_colptr);
+}
+
+
+
+void get_colvec(double *vec, long len, long *Ap, double *Ax){
+  int i;
+  for (i=0; i<len; i++){
+    vec[i] = Ax[i] ? Ap[i] < Ap[i+1] : 0;
+  }
+}
+
+
+
+// TODO delete?
+void get_rowvec(double *vec, long len, long *Ap, long *Aj, double *Ax){
+  int i, nnz = Ap[1];
+  for (i=0; i<len; i++)  vec[i] = 0;
+  for (i=0; i<nnz; i++)  vec[Aj[i]] = Ax[i];
+}
+
+
+
+void add_matrix(long m, long hshift, long vshift,
+                long *Ap, long *Ai, double *Ax,
+                long *Bp, long *Bj, double *Bx){
+  long i, j, p, p2, pA;
+  for (i=0; i<m; i++){
+    p2 = Bp[i+1];
+    for (p=Bp[i]; p<p2; p++){
+      j = Bj[p];
+      pA = Ap[j+hshift]++; // TODO clean up
+      // Ai[pA] = i+vshift; // TODO remove?
+      Ax[pA] = Bx[p];
+    }
+  }
+}
+
+
+void reset_colptr(long m, long *Ap){
+  int i;
+  for (i=m; i>0; i--){
+    Ap[i] = Ap[i-1];
+  }
+  Ap[0] = 0; 
+}
+
+
+
+
+/* These are the linop definitions. */
+{% for linop_name in unique_linops %}
+  {{- lo.define(linop_name) }}
+{% endfor %}
+

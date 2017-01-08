@@ -1,0 +1,9 @@
+/* Storage for intermediate results. */
+{% for c in linop_coeffs %}
+{% if not c.inplace or c.make_copy %}
+long   {{ c.name }}_rowptr[{{ c.size[0]+1 }}];
+long   {{ c.name }}_colidx[{{ c.sparsity.nnz }}];
+double {{ c.name }}_nzval[{{ c.sparsity.nnz }}];
+{% endif %}
+{% endfor %}
+
