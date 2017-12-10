@@ -65,8 +65,12 @@ static PyObject *solve_wrapper(PyObject *self, PyObject *args){
 
   /* Copy parameter values into the parameter structure. */
   {% for p in named_params %}
+    {% if p.is_scalar %}
+  memcpy(&params.{{ p.name }}, PyArray_DATA({{ p.name }}), {{ p.size[0]*p.size[1] }}*sizeof(double));
+    {% else %}
   // memcpy(params.{{ p.name }}, {{ p.name }}->data, {{ p.size[0]*p.size[1] }}*sizeof(double));
   memcpy(params.{{ p.name }}, PyArray_DATA({{ p.name }}), {{ p.size[0]*p.size[1] }}*sizeof(double));
+    {% endif %}
   {% endfor %}
 
 
